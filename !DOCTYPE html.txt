@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sorting Visualizer</title>
+  <style>
+    /* === CSS VARIABLES === */
+    :root{
+      --bg1:#0f2027;--bg2:#203a43;--bg3:#2c5364;--accent:#1cb5e0;--panel:#ffffff10;--bar1:#00c6ff;--bar2:#0072ff;--muted:#ddd
+    }
+    *{box-sizing:border-box;margin:0;padding:0;font-family:Segoe UI,Roboto,system-ui,-apple-system}
+
+    /* === GENERAL LAYOUT === */
+    body{
+      min-height:100vh;display:flex;flex-direction:column;align-items:center;
+      padding:28px;background:linear-gradient(90deg,var(--bg1),var(--bg2),var(--bg3));color:#fff
+    }
+    h1{font-size:26px;margin-bottom:16px}
+
+    /* === CONTROLS BAR === */
+    #controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:center;margin-bottom:14px}
+    .control{display:flex;align-items:center;gap:8px}
+    select,button{
+      background:var(--accent);border:none;color:#fff;padding:10px 12px;border-radius:8px;cursor:pointer;
+      box-shadow:0 3px 8px rgba(0,0,0,0.25)
+    }
+    button:disabled{opacity:0.6;cursor:not-allowed}
+
+    /* === SLIDERS === */
+    .range-group{display:flex;align-items:center;gap:8px}
+    .range-label{font-weight:600}
+    input[type=range]{-webkit-appearance:none;width:180px;height:8px;background:#555;border-radius:6px;outline:none}
+    input[type=range]::-webkit-slider-thumb{
+      -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+      background:var(--accent);box-shadow:0 0 4px rgba(0,0,0,0.6);cursor:pointer
+    }
+
+    /* === BARS CONTAINER === */
+    #bars-container{
+      width:100%;max-width:1100px;height:420px;background:var(--panel);
+      border-radius:12px;display:flex;align-items:flex-end;overflow:hidden;padding:12px;
+      box-shadow:0 8px 30px rgba(0,0,0,0.35)
+    }
+    .bar{
+      flex:0 0 auto;margin:0 2px;border-radius:6px 6px 0 0;
+      background:linear-gradient(180deg,var(--bar1),var(--bar2));
+      transition:height 160ms ease
+    }
+    .bar::after{
+      content:attr(data-height);display:block;text-align:center;font-size:12px;color:var(--muted);margin-top:-20px
+    }
+
+    /* === STATS === */
+    #stats{display:flex;gap:18px;margin-top:12px}
+    .stat{background:#ffffff10;padding:8px 10px;border-radius:8px}
+
+    @media(max-width:720px){input[type=range]{width:120px}}
+  </style>
+</head>
+<body>
+  <h1>Sorting Visualizer</h1>
+
+  <!-- === CONTROL PANEL === -->
+  <div id="controls">
+    <div class="control">
+      <label for="algo" class="range-label">Algorithm</label>
+      <select id="algo">
+        <option value="bubble sort">Bubble</option>
+        <option value="selection sort">Selection</option>
+        <option value="insertion sort">Insertion</option>
+        <option value="quick sort">Quick</option>
+        <option value="merge sort">Merge</option>
+      </select>
+    </div>
+
+    <div class="control"><button id="newArr"> New Array</button></div>
+
+    <div class="control range-group">
+      <span class="range-label">Array Size</span>
+      <input id="sizeSlider" type="range" min="10" max="200" value="50" />
+      <span id="sizeValue">50</span>
+    </div>
+
+    <div class="control range-group">
+      <span class="range-label">Speed</span>
+      <input id="speedSlider" type="range" min="1" max="100" value="50" />
+      <span id="speedValue">50</span>
+    </div>
+
+    <div class="control"><button id="startBtn">▶ Start</button></div>
+    <div class="control"><button id="stopBtn">⏹ Stop</button></div>
+  </div>
+
+  <!-- === BARS CONTAINER === -->
+  <div id="bars-container" aria-live="polite"></div>
+
+  <!-- === STATS DISPLAY === -->
+  <div id="stats">
+    <div class="stat">Comparisons: <span id="comparisons">0</span></div>
+    <div class="stat">Swaps: <span id="swaps">0</span></div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      /* === DOM REFERENCES === */
+      const algoSelect = document.getElementById('algo');
+      const newArrBtn = document.getElementById('newArr');
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const sizeSlider = document.getElementById('sizeSlider');
+      const speedSlider = document.getElementById('speedSlider');
+      const sizeValue = document.getElementById('sizeValue');
+      const speedValue = document.getElementById('speedValue');
+      const barsContainer = document.getElementById('bars-container');
+      const comparisonsDisplay = document.getElementById('comparisons');
+      const swapsDisplay = document.getElementById('swaps');
+
+      /* === STATE VARIABLES === */
+      let bars = [], comparisons = 0, swaps = 0;
+      let running = false, stopFlag = false;
+
+      /* === UTILITY FUNCTIONS === */
+      const msFromSpeed = s => Math.round(600 - ((s - 1) / 99) * 595); // map slider value to delay
+      const pause = ms => new Promise(res => setTimeout(res, ms)); // delay helper
+
+      // Create a new random bars array
+      function generateBars() {
+        barsContainer.innerHTML = '';
+        bars = [];
+        const n = Number(sizeSlider.value);
+        for (let i = 0; i < n; i++) {
+          const h = Math.floor(Math.random() * 280) + 20; // random height
+          const el = document.createElement('div');
+          el.className = 'bar';
+          el.style.height = `${h}px`;
+          el.style.width = `calc(${100 / n}% - 4px)`;
+          el.setAttribute('data-height', h);
+          bars.push(el);
+          barsContainer.appendChild(el);
+        }
+        comparisons = swaps = 0;
+        comparisonsDisplay.textContent = swapsDisplay.textContent = '0';
+      }
+
+      // Update comparison/swap counts
+      function updateStats(type) {
+        if (type === 'comparison') comparisons++;
+        if (type === 'swap') swaps++;
+        comparisonsDisplay.textContent = comparisons;
+        swapsDisplay.textContent = swaps;
+      }
+
+      // Swap two bars safely
+      function safeSwap(i, j) {
+        if (!bars[i] || !bars[j]) return;
+        const hi = bars[i].style.height;
+        bars[i].style.height = bars[j].style.height;
+        bars[j].style.height = hi;
+        bars[i].setAttribute('data-height', parseInt(bars[i].style.height));
+        bars[j].setAttribute('data-height', parseInt(bars[j].style.height));
+        updateStats('swap');
+      }
+
+      const shouldStop = () => stopFlag;
+
+      /* === SORTING ALGORITHMS === */
+      async function bubbleSort() {
+        const n = bars.length;
+        for (let i = 0; i < n && !shouldStop(); i++) {
+          for (let j = 0; j < n - i - 1 && !shouldStop(); j++) {
+            updateStats('comparison');
+            if (parseInt(bars[j].style.height) > parseInt(bars[j + 1].style.height)) safeSwap(j, j + 1);
+            await pause(msFromSpeed(Number(speedSlider.value)));
+          }
+        }
+      }
+
+      async function selectionSort() {
+        const n = bars.length;
+        for (let i = 0; i < n && !shouldStop(); i++) {
+          let min = i;
+          for (let j = i + 1; j < n && !shouldStop(); j++) {
+            updateStats('comparison');
+            if (parseInt(bars[j].style.height) < parseInt(bars[min].style.height)) min = j;
+            await pause(msFromSpeed(Number(speedSlider.value)));
+          }
+          if (min !== i) safeSwap(i, min);
+        }
+      }
+
+      async function insertionSort() {
+        const n = bars.length;
+        for (let i = 1; i < n && !shouldStop(); i++) {
+          let j = i;
+          while (j > 0 && !shouldStop()) {
+            updateStats('comparison');
+            if (parseInt(bars[j].style.height) < parseInt(bars[j - 1].style.height)) safeSwap(j, j - 1);
+            else break;
+            await pause(msFromSpeed(Number(speedSlider.value)));
+            j--;
+          }
+        }
+      }
+
+      async function partition(low, high) {
+        const pivot = parseInt(bars[high].style.height);
+        let i = low - 1;
+        for (let j = low; j < high && !shouldStop(); j++) {
+          updateStats('comparison');
+          if (parseInt(bars[j].style.height) < pivot) { i++; safeSwap(i, j); }
+          await pause(msFromSpeed(Number(speedSlider.value)));
+        }
+        safeSwap(i + 1, high);
+        return i + 1;
+      }
+
+      async function quickSort(low, high) {
+        if (low < high && !shouldStop()) {
+          const pi = await partition(low, high);
+          await quickSort(low, pi - 1);
+          await quickSort(pi + 1, high);
+        }
+      }
+
+      async function merge(start, mid, end) {
+        const left = bars.slice(start, mid + 1).map(b => parseInt(b.style.height));
+        const right = bars.slice(mid + 1, end + 1).map(b => parseInt(b.style.height));
+        let i = 0, j = 0, k = start;
+        while (i < left.length && j < right.length && !shouldStop()) {
+          updateStats('comparison');
+          if (left[i] <= right[j]) {
+            bars[k].style.height = left[i] + 'px';
+            bars[k].setAttribute('data-height', left[i]);
+            i++;
+          } else {
+            bars[k].style.height = right[j] + 'px';
+            bars[k].setAttribute('data-height', right[j]);
+            j++;
+          }
+          k++;
+          await pause(msFromSpeed(Number(speedSlider.value)));
+        }
+        while (i < left.length && !shouldStop()) {
+          bars[k].style.height = left[i] + 'px';
+          bars[k].setAttribute('data-height', left[i]);
+          i++; k++;
+          await pause(msFromSpeed(Number(speedSlider.value)));
+        }
+        while (j < right.length && !shouldStop()) {
+          bars[k].style.height = right[j] + 'px';
+          bars[k].setAttribute('data-height', right[j]);
+          j++; k++;
+          await pause(msFromSpeed(Number(speedSlider.value)));
+        }
+      }
+
+      async function mergeSort(start, end) {
+        if (start >= end || shouldStop()) return;
+        const mid = Math.floor((start + end) / 2);
+        await mergeSort(start, mid);
+        await mergeSort(mid + 1, end);
+        await merge(start, mid, end);
+      }
+
+      /* === SORT EXECUTION === */
+      async function runSelected() {
+        if (running) return; // prevent multiple simultaneous runs
+        running = true;
+        stopFlag = false;
+        const algo = algoSelect.value;
+        if (algo === 'bubble') await bubbleSort();
+        else if (algo === 'selection') await selectionSort();
+        else if (algo === 'insertion') await insertionSort();
+        else if (algo === 'quick') await quickSort(0, bars.length - 1);
+        else if (algo === 'merge') await mergeSort(0, bars.length - 1);
+        running = false;
+      }
+
+      /* === EVENT LISTENERS === */
+      startBtn.addEventListener('click', runSelected);
+      stopBtn.addEventListener('click', () => { stopFlag = true; running = false; });
+      newArrBtn.addEventListener('click', generateBars);
+      sizeSlider.addEventListener('input', () => { sizeValue.textContent = sizeSlider.value; generateBars(); });
+      speedSlider.addEventListener('input', () => { speedValue.textContent = speedSlider.value; });
+
+      /* === INITIALIZE === */
+      sizeValue.textContent = sizeSlider.value;
+      speedValue.textContent = speedSlider.value;
+      generateBars();
+    });
+  </script>
+</body>
+</html>
